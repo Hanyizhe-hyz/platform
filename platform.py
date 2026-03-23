@@ -1,477 +1,428 @@
-import math
-from datetime import datetime
-import hashlib
-import json
 import os
-import random
+import json
+from datetime import datetime, timedelta
 
 import pandas as pd
+import requests
 import streamlit as st
+import plotly.graph_objects as go
+import plotly.express as px
 
-# =========================================================
-# Page setup
-# =========================================================
 st.set_page_config(
-    page_title="灵径智链 | 文化转译工作台",
-    page_icon="🌎",
+    page_title="灵径智链 | Qwen x Plotly",
+    page_icon="🌐",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# =========================================================
-# Theme / CSS
-# =========================================================
-BASE_CSS = """
-<style>
-:root {
-  --bg:#f6f8fc;
-  --card:#ffffff;
-  --line:#e5e7eb;
-  --text:#0f172a;
-  --muted:#64748b;
-  --blue:#2563eb;
-  --cyan:#0ea5e9;
-  --green:#059669;
-  --soft:#eef6ff;
-}
-.stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {background:var(--bg);}
-.main .block-container {padding-top:1.2rem; padding-bottom:2rem; max-width:1180px;}
-[data-testid="stSidebar"] {background:#fff; border-right:1px solid var(--line);}
-.hero {
-  background:linear-gradient(135deg,#0f172a 0%, #1d4ed8 45%, #0ea5e9 100%);
-  color:#fff; border-radius:26px; padding:28px 30px; margin-bottom:18px;
-  box-shadow:0 12px 30px rgba(37,99,235,.18);
-}
-.hero h1 {font-size:2.1rem; margin:0 0 .35rem 0; color:#fff;}
-.hero p {margin:0; color:rgba(255,255,255,.88); line-height:1.65;}
-.hero-badge {
-  display:inline-block; padding:6px 12px; border-radius:999px; background:rgba(255,255,255,.14);
-  margin-right:8px; font-size:.83rem; font-weight:700; border:1px solid rgba(255,255,255,.18);
-}
-.soft-card {
-  background:var(--card); border:1px solid var(--line); border-radius:22px; padding:18px 20px;
-  box-shadow:0 10px 24px rgba(15,23,42,.05); margin-bottom:14px;
-}
-.metric-card {
-  background:var(--card); border:1px solid var(--line); border-radius:20px; padding:18px 18px; min-height:120px;
-  box-shadow:0 8px 20px rgba(15,23,42,.04);
-}
-.metric-label {color:var(--muted); font-size:.9rem;}
-.metric-value {font-size:2rem; font-weight:800; color:var(--text); margin-top:8px;}
-.metric-note {margin-top:10px; font-size:.85rem; color:var(--blue);}
-.section-title {font-size:1.18rem; font-weight:800; color:var(--text); margin-bottom:8px;}
-.section-note {color:var(--muted); line-height:1.7;}
-.module-card {
-  background:linear-gradient(180deg,#fff 0%,#f8fbff 100%); border:1px solid var(--line); border-radius:22px;
-  padding:20px; height:100%; box-shadow:0 10px 24px rgba(15,23,42,.04);
-}
-.module-title {font-size:1.15rem; font-weight:800; color:var(--text); margin-bottom:8px;}
-.module-desc {color:var(--muted); line-height:1.7; min-height:78px;}
-.chip {display:inline-block; padding:4px 10px; border-radius:999px; background:#eff6ff; color:#2563eb; font-size:.8rem; font-weight:700; margin:6px 8px 0 0;}
-.notice {background:#f8fafc; border-left:4px solid var(--blue); padding:12px 14px; border-radius:12px; color:#334155;}
-.ai-shell {
-  background:#0f172a; color:#e2e8f0; border-radius:24px; padding:18px; border:1px solid rgba(148,163,184,.18);
-}
-.ai-topbar {
-  display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;
-}
-.ai-dot {width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px;}
-.ai-window {
-  background:#020617; border:1px solid rgba(148,163,184,.14); border-radius:18px; padding:16px; min-height:320px;
-}
-.prompt-box {
-  background:#0b1220; border:1px solid rgba(148,163,184,.18); border-radius:14px; padding:12px 14px; color:#cbd5e1;
-}
-.result-box {
-  background:#fff; border:1px solid var(--line); border-radius:18px; padding:18px; min-height:320px;
-}
-.small-tag {
-  display:inline-block; padding:4px 10px; border-radius:999px; background:#ecfeff; color:#0f766e; font-size:.78rem; font-weight:700; margin-right:8px;
-}
-hr {border:none; border-top:1px solid #e5e7eb; margin: 12px 0 16px 0;}
-</style>
-"""
-st.markdown(BASE_CSS, unsafe_allow_html=True)
+# -----------------------------
+# Demo data
+# -----------------------------
+RISK_DF = pd.DataFrame([
+    ["巴西", 82, "紫色/宗教联想", "避免大面积紫色，突出礼赠与节庆"],
+    ["墨西哥", 77, "黄色/节庆语境错配", "区分节庆场景与日常卖点表达"],
+    ["智利", 56, "疗愈表述边界", "避免功效承诺，强调氛围和礼物属性"],
+    ["阿根廷", 35, "数字/迷信表达", "减少玄学色彩，强调工艺与设计"],
+], columns=["国家", "风险分", "主要风险", "建议"])
 
-# =========================================================
-# Data
-# =========================================================
-COUNTRY_RISKS = pd.DataFrame([
-    ["巴西", "高", "紫色、宗教联想、手势误读", 82],
-    ["墨西哥", "高", "节庆语境、黄色死亡联想", 77],
-    ["智利", "中", "疗愈宣传需谨慎", 56],
-    ["哥伦比亚", "高", "宗教节日营销敏感", 68],
-    ["阿根廷", "低", "玄学表达不宜过重", 35],
-], columns=["国家", "风险等级", "关键风险", "风险分值"])
+SKU_DF = pd.DataFrame([
+    ["工艺扇", "低价引流", 11.0, 467, "拍照道具/节庆搭配/视觉冲击"],
+    ["香囊", "文化体验", 7.5, 60, "礼赠/空间香氛/节气故事"],
+    ["汉服", "品牌溢价", 31.83, 60, "东方美学/内容传播/社交展示"],
+], columns=["商品", "角色", "均价USD", "月销量样本", "转译方向"])
 
-POLICY_SCENARIOS = pd.DataFrame([
-    ["基准情境", 0, 6.90, 0.92],
-    ["关税上调", 8, 6.90, 0.85],
-    ["汇率波动", 0, 7.25, 0.88],
-    ["双重压力", 8, 7.25, 0.80],
-], columns=["情境", "关税变动%", "汇率", "转化系数"])
+PROFIT_SERIES = pd.DataFrame({
+    "日期": pd.date_range("2026-03-01", periods=12, freq="D"),
+    "利润": [-980, -820, -760, -690, -610, -580, -540, -500, -430, -380, -260, -190],
+    "运费": [120, 118, 117, 114, 112, 110, 109, 108, 107, 106, 105, 104],
+    "税费": [36, 37, 38, 39, 41, 42, 44, 45, 47, 49, 50, 52],
+})
 
-PRECHECK_ITEMS = pd.DataFrame([
-    ["商业发票", "通过", "已补足品名、材质与申报价值"],
-    ["装箱单", "通过", "箱规与重量一致"],
-    ["品牌与图样权利", "待补充", "需商家上传授权说明"],
-    ["清关敏感词", "预警", "疗愈相关表述需弱化效果承诺"],
-    ["目标国限制", "通过", "当前 SKU 不涉及禁限运材质"],
-], columns=["审查项", "状态", "说明"])
+ORDER_STEPS = [
+    ("资料预审", "已完成", "商品编码、申报名称、材质说明已校核"),
+    ("税费模拟", "已完成", "完成关税与小额包裹政策冲击测算"),
+    ("清关规则检查", "进行中", "检测到墨西哥节庆标签表述需修订"),
+    ("履约路径建议", "待确认", "推荐深圳仓→墨西哥城经济线"),
+]
 
-SAMPLE_PRODUCTS = {
-    "工艺扇": {
-        "position": "低价引流",
-        "scene": "节庆、拍照、舞蹈配饰",
-        "base_title": "中国古风折扇",
-        "tone": "活泼、节庆、社交分享",
-    },
-    "香囊": {
-        "position": "体验转译",
-        "scene": "礼赠、空间香氛、节日祝福",
-        "base_title": "中式香囊挂饰",
-        "tone": "温和、礼赠、仪式感",
-    },
-    "汉服": {
-        "position": "品牌溢价",
-        "scene": "东方审美、内容传播、社交穿搭",
-        "base_title": "中国风汉服套装",
-        "tone": "高级、审美、品牌感",
-    },
-}
+SUGGESTIONS = [
+    "请基于当前财务数据，生成一份完整的利润诊断与优化建议。",
+    "把“中式香囊”转译为适合巴西 TikTok Shop 的商品标题和五条卖点。",
+    "如果墨西哥小额包裹免税额度下调，请重算建议售价和利润边界。",
+    "请做一份汉服在拉美市场的内容传播和本地化表达建议。",
+]
 
-# =========================================================
+# -----------------------------
 # Helpers
-# =========================================================
-def nav_card(title: str, desc: str, badges=None):
-    badges = badges or []
-    chip_html = "".join([f'<span class="chip">{b}</span>' for b in badges])
-    return f"""
-    <div class="module-card">
-        <div class="module-title">{title}</div>
-        <div class="module-desc">{desc}</div>
-        <div>{chip_html}</div>
-    </div>
-    """
-
-
-def calc_profit(cost_cny, ship_usd, rate, tariff_pct, price_usd):
-    ship_cny = ship_usd * rate
-    total = cost_cny + ship_cny
-    taxed_total = total * (1 + tariff_pct / 100)
-    gross_profit = price_usd * rate - taxed_total
-    gross_margin = 0 if price_usd * rate == 0 else gross_profit / (price_usd * rate)
-    return round(taxed_total, 2), round(gross_profit, 2), round(gross_margin * 100, 1)
-
-
-def qwen_style_copy(product, country, audience, scene, highlights, tone):
-    seed = int(hashlib.md5(f"{product}{country}{audience}{scene}{highlights}{tone}".encode("utf-8")).hexdigest(), 16)
-    rnd = random.Random(seed)
-    hooks = [
-        "把东方美学翻译成当地消费者愿意点开的表达",
-        "让高文化属性商品进入当地生活场景，而不是停留在异域标签",
-        "把手作细节、礼赠意义与社交展示价值重新组织为可购买语言",
-    ]
-    opener = rnd.choice(hooks)
-    highlight_list = [h.strip() for h in highlights.replace("，", ",").split(",") if h.strip()]
-    if not highlight_list:
-        highlight_list = ["手作细节", "礼赠属性", "东方氛围"]
-    title = f"{country}市场｜{product} {scene}向本地化文案"
-    bullets = [
-        f"围绕“{scene}”场景，避免直译和过度异域化表达。",
-        f"突出{highlight_list[0]}，让{audience}更容易理解商品价值。",
-        f"语言风格保持{tone}，强调可送礼、可展示、可分享。",
-    ]
-    short_copy = (
-        f"这不是简单把中文商品名翻译成西语或葡语，而是把 {product} 转化为 {country} 消费者能够理解的"
-        f"生活场景表达。文案以“{scene}”为核心，突出{'、'.join(highlight_list[:3])}，"
-        f"既保留东方审美，又降低文化误读风险。"
-    )
-    hero = f"{product}，用更懂 {country} 消费者的方式被看见"
-    cta = f"先用文化转译改文案，再决定上架和定价"
-    return {
-        "title": title,
-        "hook": opener,
-        "bullets": bullets,
-        "short_copy": short_copy,
-        "hero": hero,
-        "cta": cta,
-        "audit": {
-            "mode": "千问风格免配置演示",
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "country": country,
-            "audience": audience,
-            "tone": tone,
-        },
-    }
-
-
-# Optional real Qwen via env var only (no user-side API input needed)
-def try_real_qwen(prompt: str):
-    api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
-    if not api_key:
-        return None
-    try:
-        import requests
-        resp = requests.post(
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "qwen-plus",
-                "messages": [
-                    {"role": "system", "content": "你是跨境电商中文案改写助手，擅长国潮商品在拉美市场的本地化表达。输出中文。"},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.8,
-            },
-            timeout=40,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-    except Exception:
-        return None
-
-
-# =========================================================
-# Sidebar
-# =========================================================
-st.sidebar.markdown("### 灵径智链")
-st.sidebar.caption("文化转译为核心 · 利润测算与合规预审为支撑")
-page = st.sidebar.radio(
-    "导航",
-    ["平台总览", "文化转译中枢", "千问文案工坊", "ProfitLab 动态利润", "Puente 合规预审"],
-    label_visibility="collapsed",
-)
-with st.sidebar.expander("当前版本说明", expanded=False):
-    st.write("- 去除了 plotly 依赖，避免部署报错")
-    st.write("- 文案工坊默认使用免配置的“千问风格演示模式”")
-    st.write("- 若部署环境已配置 DASHSCOPE_API_KEY，会自动优先尝试真实千问接口")
-
-# =========================================================
-# Pages
-# =========================================================
-if page == "平台总览":
+# -----------------------------
+def load_css():
     st.markdown(
         """
-        <div class="hero">
-            <div>
-                <span class="hero-badge">核心卖点：文化转译</span>
-                <span class="hero-badge">支撑能力：动态利润 + 合规预审</span>
-            </div>
-            <h1>灵径智链：依托现有平台生态的跨文化运营工作台</h1>
-            <p>不是另造一个 Temu 或 TikTok Shop，而是服务高文化属性、高附加值国潮商品，
-            帮助商家在 Shopee、TikTok Shop、Amazon 等平台中完成文化转译、政策波动下的利润判断，以及发货前的合规数字化预审。</p>
+        <style>
+        .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+            background: linear-gradient(180deg, #020817 0%, #071122 100%);
+            color: #e2e8f0;
+        }
+        [data-testid="stSidebar"] {
+            background: #06101f;
+            border-right: 1px solid rgba(56,189,248,.16);
+        }
+        .main .block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 1500px;}
+        .brand-box {
+            background: linear-gradient(135deg, rgba(17,24,39,.96), rgba(3,8,20,.96));
+            border: 1px solid rgba(59,130,246,.18);
+            border-radius: 18px; padding: 16px 18px; margin-bottom: 14px;
+        }
+        .brand-title {font-size: 1.35rem; font-weight: 800; color: #f8fafc;}
+        .brand-sub {color: #60a5fa; font-size: .86rem; letter-spacing: .08em; text-transform: uppercase;}
+        .hero-card {
+            background: linear-gradient(135deg, rgba(2,6,23,.96), rgba(7,18,38,.96));
+            border: 1px solid rgba(59,130,246,.16); border-radius: 22px; padding: 22px 24px; margin-bottom: 16px;
+            box-shadow: 0 20px 50px rgba(2,6,23,.35);
+        }
+        .hero-title {font-size: 2rem; font-weight: 800; color: #f8fafc; line-height: 1.2; margin-bottom: .35rem;}
+        .hero-sub {color: #93c5fd; font-size: 1rem;}
+        .chip {display:inline-block; padding: 5px 12px; background: rgba(8,47,73,.55); border: 1px solid rgba(34,211,238,.22); border-radius: 999px; color:#67e8f9; font-size: .82rem; margin-right: 8px; margin-top: 6px;}
+        .metric-card {
+            background: linear-gradient(180deg, rgba(2,8,23,.96), rgba(3,12,26,.98));
+            border: 1px solid rgba(59,130,246,.14); border-radius: 18px; padding: 16px 18px; min-height: 115px;
+        }
+        .metric-label {font-size: .82rem; color: #60a5fa; text-transform: uppercase; letter-spacing: .08em;}
+        .metric-value {font-size: 2rem; font-weight: 800; color: #f8fafc; margin-top: 10px;}
+        .metric-delta-up {color:#22c55e; font-size: .92rem;}
+        .metric-delta-down {color:#fb7185; font-size: .92rem;}
+        .section-card {
+            background: rgba(2,8,23,.96); border:1px solid rgba(59,130,246,.14); border-radius: 18px; padding: 16px 18px; margin-top: 12px;
+        }
+        .section-title {font-size: 1.08rem; font-weight: 700; color: #f8fafc; margin-bottom: 10px;}
+        .insight {
+            background: rgba(8,47,73,.45); border-left: 4px solid #22d3ee; padding: 12px 14px; border-radius: 12px; color:#dbeafe; margin: 10px 0;
+        }
+        .small-note {color:#94a3b8; font-size: .88rem;}
+        .stream-box {background:#020817; border:1px solid rgba(56,189,248,.15); border-radius: 18px; padding: 14px; min-height: 420px;}
+        .prompt-chip {display:inline-block; padding:6px 10px; margin-right:8px; margin-bottom:8px; background:#0b1830; border:1px solid rgba(59,130,246,.18); border-radius:12px; color:#cbd5e1; font-size:.85rem;}
+        .stTabs [data-baseweb="tab-list"] {gap: 8px;}
+        .stTabs [data-baseweb="tab"] {background:#071122; border-radius:12px 12px 0 0; padding:10px 16px; color:#cbd5e1;}
+        .stTabs [aria-selected="true"] {background:#0b1730 !important; color:#67e8f9 !important;}
+        .stButton > button {
+            background: linear-gradient(90deg, #2563eb, #7c3aed); color: white; border: 0; border-radius: 12px; padding: .5rem .9rem; font-weight: 700;
+        }
+        div[data-baseweb="select"] > div, .stTextInput input, .stTextArea textarea, .stNumberInput input {
+            background: #071122 !important; color:#e2e8f0 !important; border-radius: 12px !important; border: 1px solid rgba(59,130,246,.16) !important;
+        }
+        .footer-line {color:#64748b; font-size: .82rem; text-align:right; margin-top: 8px;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def kpi_card(label: str, value: str, delta: str = "", up: bool | None = None):
+    delta_cls = "metric-delta-up" if up else "metric-delta-down"
+    delta_html = f'<div class="{delta_cls}">{delta}</div>' if delta else ""
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">{value}</div>
+            {delta_html}
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3 = st.columns(3)
+
+def qwen_call(prompt: str) -> str:
+    api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    if api_key:
+        try:
+            resp = requests.post(
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "qwen-turbo",
+                    "messages": [
+                        {"role": "system", "content": "你是灵径智链平台的跨文化电商文案顾问，回答务实、可落地、适合拉美市场。"},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.7,
+                },
+                timeout=40,
+            )
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    # demo fallback
+    if "利润" in prompt or "定价" in prompt:
+        return (
+            "### ProfitLab 快速分析\n"
+            "1. 当前毛利为负，核心压力来自运费与税费上升。\n"
+            "2. 建议先把主推 SKU 售价上调 8%–12%，并拆分出礼盒版与基础版。\n"
+            "3. 若 2026 年小额包裹免税额度下调，优先改走合规经济线，并降低单票低货值 SKU 的投放。\n"
+            "4. 建议把文化转译后的高溢价卖点写进详情页，否则提价无法被消费者接受。"
+        )
+    return (
+        "### 千问文案草案\n"
+        "**标题：** 东方香氛礼袋｜适合节庆赠礼与空间氛围布置\n\n"
+        "**卖点：**\n"
+        "- 结合东方手作与节庆礼赠语境，更适合拉美平台内容传播\n"
+        "- 强调空间香氛与仪式感，而非功效性表达\n"
+        "- 适合短视频展示“开箱—悬挂—送礼”完整场景\n\n"
+        "**详情页短文案：**\n"
+        "这不是简单的中式挂件，而是一件适合节庆、赠礼与空间装饰的东方香氛小物。平台建议结合礼盒包装与本地节日节点投放，以提升溢价空间与内容传播效率。"
+    )
+
+
+# -----------------------------
+# Visual builders
+# -----------------------------
+def profit_chart():
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=PROFIT_SERIES["日期"], y=PROFIT_SERIES["利润"],
+        mode="lines+markers", name="区间利润",
+        line=dict(color="#22d3ee", width=3),
+        marker=dict(size=7, color="#22d3ee")
+    ))
+    fig.add_trace(go.Bar(
+        x=PROFIT_SERIES["日期"], y=PROFIT_SERIES["税费"],
+        name="税费", marker_color="rgba(124,58,237,.55)"
+    ))
+    fig.update_layout(
+        height=360,
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=20, b=10),
+        legend=dict(orientation="h", y=1.08, x=0),
+    )
+    return fig
+
+
+def risk_bar():
+    fig = px.bar(
+        RISK_DF,
+        x="国家",
+        y="风险分",
+        color="风险分",
+        color_continuous_scale=["#22c55e", "#f59e0b", "#ef4444"],
+        text="风险分",
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(
+        height=320,
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=10, b=10),
+        coloraxis_showscale=False,
+    )
+    return fig
+
+
+def sku_bubble():
+    fig = px.scatter(
+        SKU_DF,
+        x="均价USD",
+        y="月销量样本",
+        size="月销量样本",
+        color="角色",
+        hover_name="商品",
+        size_max=50,
+        color_discrete_sequence=["#22d3ee", "#a855f7", "#f59e0b"],
+    )
+    fig.update_layout(
+        height=340,
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=10, b=10),
+    )
+    return fig
+
+
+# -----------------------------
+# Pages
+# -----------------------------
+def page_overview():
+    st.markdown('<div class="hero-card"><div class="hero-title">灵径智链 · 文化转译驱动的拉美跨境赋能平台</div><div class="hero-sub">不是另一个 Temu，而是服务高文化属性、高附加值国潮商品的第三方赋能系统</div><span class="chip">核心：文化转译</span><span class="chip">支撑：动态利润</span><span class="chip">支撑：合规预审</span></div>', unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown('<div class="metric-card"><div class="metric-label">核心能力权重</div><div class="metric-value">文化转译</div><div class="metric-note">作为首页首屏与主展示位</div></div>', unsafe_allow_html=True)
+        kpi_card("核心市场", "LatAm", "墨西哥 / 巴西 / 智利")
     with c2:
-        st.markdown('<div class="metric-card"><div class="metric-label">利润支撑</div><div class="metric-value">动态测算</div><div class="metric-note">响应关税、汇率与政策波动</div></div>', unsafe_allow_html=True)
+        kpi_card("样板SKU", "3 类", "工艺扇 / 香囊 / 汉服")
     with c3:
-        st.markdown('<div class="metric-card"><div class="metric-label">交付支撑</div><div class="metric-value">预审协同</div><div class="metric-note">发货前发现清关与合规风险</div></div>', unsafe_allow_html=True)
+        kpi_card("文化风险库", "120+", "规则节点持续扩充", True)
+    with c4:
+        kpi_card("预审通过率", "91%", "发货前问题前置发现", True)
 
-    st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>平台能力结构：一核两翼</div>", unsafe_allow_html=True)
-    g1, g2, g3 = st.columns(3)
-    with g1:
-        st.markdown(nav_card("文化转译中枢", "围绕高文化属性商品的命名、卖点、页面场景与语义风险展开，是整个平台最核心的差异化能力。", ["核心卖点", "语义风控", "本地化表达"]), unsafe_allow_html=True)
-    with g2:
-        st.markdown(nav_card("ProfitLab 动态利润", "面对关税、汇率和平台规则波动，快速重算成本、利润和建议售价。", ["政策响应", "动态测算", "定价建议"]), unsafe_allow_html=True)
-    with g3:
-        st.markdown(nav_card("Puente 合规预审", "聚焦发货前的文件校核、风险提示和履约路径建议，而不是重资产全托管。", ["发货前预审", "清关协同", "风险留痕"]), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    left, right = st.columns([1.25, 1])
+    left, right = st.columns((1.1, 1))
     with left:
-        st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='section-title'>为何不是‘大平台’，而是‘优质第三方运营插件’</div>", unsafe_allow_html=True)
+        st.markdown('<div class="section-card"><div class="section-title">项目定位</div></div>', unsafe_allow_html=True)
         st.markdown(
-            """
-            <div class='notice'>
-            灵径智链不直接争夺消费者流量，也不以低价工业品铺货为核心逻辑。它服务的是需要被重新讲述和重新包装的国潮商品，
-            尤其适用于文创、非遗和疗愈类高文化属性商品，帮助商家在现有平台生态中实现更清晰的表达、更稳健的利润判断与更低风险的发货决策。
-            </div>
-            """,
+            '<div class="insight">灵径智链并非面向终端消费者的综合电商平台，而是依托 Shopee、TikTok Shop、Amazon 等现有平台生态，为国潮文创、非遗及疗愈类商家提供文化转译、利润测算与合规预审的一体化 B2B 赋能服务。</div>',
             unsafe_allow_html=True,
         )
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown("**样板 SKU 结构**")
-        sku_df = pd.DataFrame([
-            [k, v["position"], v["scene"]] for k, v in SAMPLE_PRODUCTS.items()
-        ], columns=["样板商品", "验证角色", "核心场景"])
-        st.dataframe(sku_df, use_container_width=True, hide_index=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.plotly_chart(sku_bubble(), use_container_width=True)
     with right:
-        st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='section-title'>五国文化风险热力</div>", unsafe_allow_html=True)
-        st.bar_chart(COUNTRY_RISKS.set_index("国家")["风险分值"], height=280)
-        st.caption("文化语义风控不是附属功能，而是本项目的首要竞争力。")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown('<div class="section-card"><div class="section-title">拉美文化风险热区</div></div>', unsafe_allow_html=True)
+        st.plotly_chart(risk_bar(), use_container_width=True)
+        st.markdown('<div class="small-note">系统将文化误读风险前置到上架与发货前，避免“当地人不买账”和清关表达偏差。</div>', unsafe_allow_html=True)
 
+
+def page_culture():
+    st.markdown('<div class="hero-card"><div class="hero-title">文化转译中枢</div><div class="hero-sub">项目的核心竞争力：把“能卖的中国商品”翻译成“当地愿意买的表达”</div></div>', unsafe_allow_html=True)
+
+    col1, col2 = st.columns((1, 1))
+    with col1:
+        sku = st.selectbox("样板商品", ["香囊", "工艺扇", "汉服"])
+        market = st.selectbox("目标市场", ["巴西", "墨西哥", "智利", "阿根廷"])
+        raw_title = st.text_input("原始商品标题", f"中式{sku}")
+        raw_desc = st.text_area("原始表达", "强调东方工艺、节气寓意、手作设计，适合礼赠与节庆搭配。", height=120)
+
+        if st.button("生成转译建议"):
+            translated = qwen_call(f"请将商品“{raw_title}”转译为适合{market}电商平台的标题、三条卖点和一句详情页短文案，避免文化误读。")
+            st.session_state["culture_output"] = translated
+
+    with col2:
+        st.markdown('<div class="section-card"><div class="section-title">文化风控结果</div></div>', unsafe_allow_html=True)
+        risk_row = RISK_DF[RISK_DF["国家"] == market].iloc[0]
+        st.metric("目标市场风险分", int(risk_row["风险分"]))
+        st.write(f"**主要风险：** {risk_row['主要风险']}")
+        st.write(f"**平台建议：** {risk_row['建议']}")
+        st.markdown('<div class="section-card"><div class="section-title">AI 转译输出</div></div>', unsafe_allow_html=True)
+        st.markdown(st.session_state.get("culture_output", "点击左侧按钮生成适配当地市场的标题、卖点与详情页文案。"))
+
+
+def page_copylab():
+    st.markdown('<div class="hero-card"><div class="hero-title">千问文案工坊</div><div class="hero-sub">不手填 API。默认直接可演示；若部署环境已配置 DASHSCOPE_API_KEY，则自动调用真实千问接口</div></div>', unsafe_allow_html=True)
+
+    left, right = st.columns((2.2, 1))
+    with left:
+        st.markdown('<div class="stream-box">', unsafe_allow_html=True)
+        st.write("### 输入指令")
+        for s in SUGGESTIONS:
+            st.markdown(f'<span class="prompt-chip">{s}</span>', unsafe_allow_html=True)
+        prompt = st.text_area(
+            "给千问的任务",
+            "请为巴西 TikTok Shop 的“东方香囊礼袋”生成 1 个商品标题、4 条卖点、1 段详情页短文案和 3 条短视频封面口号，风格偏礼赠、空间香氛与节庆氛围，避免功效承诺。",
+            height=170,
+            label_visibility="collapsed",
+        )
+        if st.button("生成 AI 文案"):
+            st.session_state["copy_output"] = qwen_call(prompt)
+        st.markdown("### 生成结果")
+        st.markdown(st.session_state.get("copy_output", "这里会显示千问生成的标题、卖点和详情页文案。"))
+        st.markdown('</div>', unsafe_allow_html=True)
+    with right:
+        st.markdown('<div class="section-card"><div class="section-title">使用说明</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            "- 适合做比赛演示：不用手填 API\n"
+            "- 有服务器环境变量时可自动切真实千问\n"
+            "- 无 Key 时也能跑演示文案，不会空白\n"
+            "- 生成内容会围绕“文化转译 + 平台适配”风格输出"
+        )
+        st.markdown('<div class="section-card"><div class="section-title">建议输出结构</div></div>', unsafe_allow_html=True)
+        st.markdown("标题 / 卖点 / 详情页 / 封面口号 / 风险规避提示")
+
+
+def page_profit():
+    st.markdown('<div class="hero-card"><div class="hero-title">ProfitLab 动态利润测算</div><div class="hero-sub">不是静态计算器，而是政策波动下的动态经营决策支持工具</div></div>', unsafe_allow_html=True)
+
+    top1, top2, top3, top4, top5 = st.columns(5)
+    with top1:
+        kpi_card("毛利/件", "-¥29.81", "低于变动成本", False)
+    with top2:
+        kpi_card("净利率", "-24.8%", "需重算建议售价", False)
+    with top3:
+        kpi_card("运费/件", "¥104.80", "经济线为当前主路径")
+    with top4:
+        kpi_card("区间利润", "-¥1.1w", "主因：税费抬升", False)
+    with top5:
+        kpi_card("ROI", "-219%", "当前投放不可持续", False)
+
+    tabs = st.tabs(["盈亏分析", "情景模拟", "多SKU对比", "AI 顾问"])
+    with tabs[0]:
+        a, b = st.columns((2, 1))
+        with a:
+            st.plotly_chart(profit_chart(), use_container_width=True)
+        with b:
+            st.markdown('<div class="section-card"><div class="section-title">当前财务快照</div></div>', unsafe_allow_html=True)
+            st.dataframe(pd.DataFrame({
+                "指标": ["运费(CNY)", "变动成本", "固定成本", "净利润率", "ROI"],
+                "当前值": ["¥104.80", "¥149.81", "¥5,000", "-24.84%", "-219%"]
+            }), use_container_width=True, hide_index=True)
+    with tabs[1]:
+        c1, c2 = st.columns((1, 2))
+        with c1:
+            tariff = st.slider("关税上浮", 0, 30, 12)
+            fx = st.slider("汇率波动", -10, 10, 3)
+            freight = st.slider("运费变动", -20, 30, 8)
+            st.markdown('<div class="small-note">可用于模拟 2026 年小额包裹免税额度调整、关税波动、汇率变化等政策冲击。</div>', unsafe_allow_html=True)
+        with c2:
+            base_cost = 149.81
+            adj_cost = base_cost * (1 + tariff/100) * (1 + freight/100) * (1 + fx/100)
+            suggested = round(adj_cost * 1.35, 2)
+            df = pd.DataFrame({"场景": ["当前", "政策波动后"], "单件成本": [base_cost, adj_cost], "建议售价": [190.0, suggested]})
+            fig = px.bar(df, x="场景", y=["单件成本", "建议售价"], barmode="group", template="plotly_dark")
+            fig.update_layout(height=330, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig, use_container_width=True)
+    with tabs[2]:
+        st.dataframe(SKU_DF[["商品", "角色", "均价USD", "月销量样本"]], use_container_width=True, hide_index=True)
+    with tabs[3]:
+        prompt = st.text_area("财务提问", "请根据当前财务数据，为我生成一份全面的盈利分析报告，包括：1.现状诊断 2.风险点识别 3.可操作的优化建议", height=120)
+        if st.button("生成 ProfitLab AI 分析"):
+            st.session_state["profit_ai"] = qwen_call(prompt)
+        st.markdown(st.session_state.get("profit_ai", "点击按钮，让 AI 基于当前财务快照给出诊断与优化建议。"))
+
+
+def page_puente():
+    st.markdown('<div class="hero-card"><div class="hero-title">Puente 合规数字化预审</div><div class="hero-sub">不讲“全托管野心”，聚焦发货前预审、规则校核与履约协同建议</div></div>', unsafe_allow_html=True)
+
+    left, right = st.columns((1.3, 1))
+    with left:
+        st.markdown('<div class="section-card"><div class="section-title">预审流程</div></div>', unsafe_allow_html=True)
+        for i, (title, status, desc) in enumerate(ORDER_STEPS, 1):
+            st.markdown(f"**{i}. {title}** · `{status}`  \\n{desc}")
+            st.divider()
+    with right:
+        st.markdown('<div class="section-card"><div class="section-title">预审结论</div></div>', unsafe_allow_html=True)
+        st.metric("当前风险等级", "中风险")
+        st.write("- 申报名称需从“中式香囊”改为“东方香氛礼袋”")
+        st.write("- 巴西/墨西哥文案中避免功效性用语")
+        st.write("- 推荐补充材质说明与原产地标签")
+        st.write("- 推荐路径：深圳仓 → 墨西哥城经济线")
+        st.markdown('<div class="insight">系统目标不是替代全部后端执行，而是在货物发出前通过 AI 预审把高概率行政风险前置发现。</div>', unsafe_allow_html=True)
+
+
+# -----------------------------
+# Main
+# -----------------------------
+load_css()
+
+with st.sidebar:
+    st.markdown('<div class="brand-box"><div class="brand-title">灵径智链</div><div class="brand-sub">Qwen × Plotly Demo</div></div>', unsafe_allow_html=True)
+    page = st.radio(
+        "导航",
+        ["平台总览", "文化转译中枢", "千问文案工坊", "ProfitLab 动态利润", "Puente 合规预审"],
+        label_visibility="collapsed",
+    )
+    st.markdown("---")
+    st.markdown("**当前模式**")
+    st.markdown("- 核心卖点：文化转译\n- 支撑能力：动态利润\n- 风险兜底：合规预审")
+
+if page == "平台总览":
+    page_overview()
 elif page == "文化转译中枢":
-    st.markdown("<div class='section-title'>文化转译中枢</div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-note'>先解决‘当地人为什么不买账’，再谈投放、利润和发货。这里展示的是文化转译作为核心卖点的工作方式。</div>", unsafe_allow_html=True)
-
-    c1, c2 = st.columns([1.05, 1])
-    with c1:
-        product = st.selectbox("选择样板商品", list(SAMPLE_PRODUCTS.keys()))
-        country = st.selectbox("目标国家", COUNTRY_RISKS["国家"].tolist())
-        tone = st.selectbox("页面语气", ["礼赠感", "节庆感", "审美感", "轻疗愈感"])
-        origin_name = st.text_input("原始中文商品名", SAMPLE_PRODUCTS[product]["base_title"])
-        origin_selling = st.text_area("原始卖点", "国风、手作、传统元素，适合出海售卖。", height=120)
-        st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-        st.markdown("**文化风险提示**")
-        risk_row = COUNTRY_RISKS[COUNTRY_RISKS["国家"] == country].iloc[0]
-        st.write(f"- 风险等级：**{risk_row['风险等级']}**")
-        st.write(f"- 重点提醒：{risk_row['关键风险']}")
-        st.write("- 建议：避免直译和抽象文化自嗨，优先翻译成礼赠、氛围、社交展示和生活场景。")
-        st.markdown("</div>", unsafe_allow_html=True)
-    with c2:
-        translated_title = f"{country}市场版｜{product} · {SAMPLE_PRODUCTS[product]['scene']}表达"
-        translated_points = [
-            f"弱化‘传统’和‘古风’直译，改写成更贴近日常消费的 {SAMPLE_PRODUCTS[product]['scene']} 场景。",
-            f"围绕 {tone} 组织主视觉和卖点层级，保留东方审美但避免文化隔膜。",
-            "优先突出礼赠/搭配/展示用途，而不是抽象文化符号本身。",
-        ]
-        st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-        st.markdown("**转译后建议**")
-        st.write(f"**建议标题**：{translated_title}")
-        for item in translated_points:
-            st.write(f"- {item}")
-        st.write("**详情页主张**：让商品先进入当地生活，再进入当地购物车。")
-        st.markdown("</div>", unsafe_allow_html=True)
-
+    page_culture()
 elif page == "千问文案工坊":
-    st.markdown("<div class='section-title'>千问文案工坊（免配置）</div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-note'>不需要手动输入 API。默认使用免配置的“千问风格演示模式”；如果部署环境已配置千问密钥，会自动尝试真实接口。</div>", unsafe_allow_html=True)
-
-    left, right = st.columns([1.05, 1])
-    with left:
-        st.markdown("<div class='ai-shell'>", unsafe_allow_html=True)
-        st.markdown(
-            """
-            <div class='ai-topbar'>
-              <div>
-                <span class='ai-dot' style='background:#fb7185'></span>
-                <span class='ai-dot' style='background:#f59e0b'></span>
-                <span class='ai-dot' style='background:#10b981'></span>
-              </div>
-              <div style='color:#94a3b8;font-size:.85rem;'>Lingjing Server Frontend · Qwen Copy Studio</div>
-            </div>
-            <div class='ai-window'>
-            """,
-            unsafe_allow_html=True,
-        )
-        product = st.selectbox("商品类型", list(SAMPLE_PRODUCTS.keys()), key="ai_product")
-        country = st.selectbox("目标市场", COUNTRY_RISKS["国家"].tolist(), key="ai_country")
-        audience = st.text_input("目标用户", "18-30岁喜欢社交分享和礼赠体验的年轻用户")
-        scene = st.text_input("核心场景", SAMPLE_PRODUCTS[product]["scene"])
-        highlights = st.text_input("希望突出的卖点（逗号分隔）", "东方美学,礼赠属性,手作细节")
-        tone = st.selectbox("语气风格", ["轻盈温暖", "节庆活泼", "高级克制", "社交种草"], key="ai_tone")
-        extra = st.text_area("补充指令", "请避免过度异域化表达，不要出现医疗疗效暗示。", height=110)
-        st.markdown("<div class='prompt-box'>", unsafe_allow_html=True)
-        st.caption("当前请求预览")
-        st.code(
-            f"商品={product}\n市场={country}\n用户={audience}\n场景={scene}\n卖点={highlights}\n语气={tone}\n附加要求={extra}",
-            language="text",
-        )
-        if st.button("生成文案", use_container_width=True, type="primary"):
-            prompt = f"为{country}市场的{product}生成本地化文案，用户是{audience}，场景是{scene}，卖点是{highlights}，语气是{tone}。要求：{extra}。输出标题、3条卖点、100字详情简介、封面标语。"
-            real = try_real_qwen(prompt)
-            if real:
-                st.session_state["ai_output"] = {
-                    "mode": "真实千问接口",
-                    "raw": real,
-                    "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                }
-            else:
-                st.session_state["ai_output"] = qwen_style_copy(product, country, audience, scene, highlights, tone)
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("</div></div>", unsafe_allow_html=True)
-    with right:
-        st.markdown("<div class='result-box'>", unsafe_allow_html=True)
-        st.markdown("**生成结果**")
-        out = st.session_state.get("ai_output")
-        if not out:
-            st.info("输入商品与市场信息后，点击“生成文案”。")
-        elif "raw" in out:
-            st.markdown(f"<span class='small-tag'>{out['mode']}</span>", unsafe_allow_html=True)
-            st.write(out["raw"])
-            st.caption(f"生成时间：{out['generated_at']}")
-        else:
-            st.markdown(f"<span class='small-tag'>{out['audit']['mode']}</span>", unsafe_allow_html=True)
-            st.write(f"**建议标题**：{out['title']}")
-            st.write(f"**文案切入点**：{out['hook']}")
-            st.write("**卖点三条**")
-            for b in out["bullets"]:
-                st.write(f"- {b}")
-            st.write("**详情页短文案**")
-            st.write(out["short_copy"])
-            st.write("**封面口号**")
-            st.write(out["hero"])
-            st.write("**行动引导**")
-            st.write(out["cta"])
-            st.caption(json.dumps(out["audit"], ensure_ascii=False, indent=2))
-        st.markdown("</div>", unsafe_allow_html=True)
-
+    page_copylab()
 elif page == "ProfitLab 动态利润":
-    st.markdown("<div class='section-title'>ProfitLab：动态利润测算与政策响应</div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-note'>不是静态计算器，而是围绕关税、汇率和政策波动快速重算成本与建议售价的经营支撑工具。</div>", unsafe_allow_html=True)
+    page_profit()
+else:
+    page_puente()
 
-    left, right = st.columns([1, 1])
-    with left:
-        cost_cny = st.number_input("采购成本（人民币）", min_value=1.0, value=45.0, step=1.0)
-        ship_usd = st.number_input("国际运费（美元）", min_value=0.1, value=1.8, step=0.1)
-        rate = st.number_input("汇率（USD/CNY）", min_value=5.0, value=6.95, step=0.01)
-        tariff = st.slider("关税/税费加成（%）", 0, 20, 6)
-        price_usd = st.number_input("建议售价（美元）", min_value=1.0, value=16.9, step=0.1)
-        total, gp, gm = calc_profit(cost_cny, ship_usd, rate, tariff, price_usd)
-        st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-        a, b, c = st.columns(3)
-        a.metric("税后总成本", f"¥{total}")
-        b.metric("单件毛利", f"¥{gp}")
-        c.metric("毛利率", f"{gm}%")
-        st.markdown("</div>", unsafe_allow_html=True)
-    with right:
-        scenario_rows = []
-        for _, row in POLICY_SCENARIOS.iterrows():
-            sc_total, sc_gp, sc_gm = calc_profit(cost_cny, ship_usd, row["汇率"], tariff + row["关税变动%"], price_usd)
-            scenario_rows.append([row["情境"], row["关税变动%"], row["汇率"], sc_total, sc_gp, sc_gm])
-        scenario_df = pd.DataFrame(scenario_rows, columns=["情境", "额外关税%", "汇率", "税后总成本", "单件毛利", "毛利率%"])
-        st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-        st.markdown("**政策波动情境测算**")
-        st.dataframe(scenario_df, use_container_width=True, hide_index=True)
-        st.caption("可用于模拟 2026 年拉美小额包裹税费调整、汇率波动等情境。")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-elif page == "Puente 合规预审":
-    st.markdown("<div class='section-title'>Puente：合规数字化预审与履约协同</div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-note'>首阶段不讲“全托管”，而是聚焦货物发出前的材料校核、风险预警与路径建议。</div>", unsafe_allow_html=True)
-
-    left, right = st.columns([1.05, 1])
-    with left:
-        st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-        target_country = st.selectbox("目标国家", COUNTRY_RISKS["国家"].tolist(), key="pcountry")
-        sku_type = st.selectbox("商品类型", list(SAMPLE_PRODUCTS.keys()), key="psku")
-        st.write("**预审结果**")
-        st.dataframe(PRECHECK_ITEMS, use_container_width=True, hide_index=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with right:
-        st.markdown("<div class='soft-card'>", unsafe_allow_html=True)
-        st.markdown("**系统建议**")
-        st.write("- 发货前补齐品牌与图样授权说明，避免知识产权争议。")
-        st.write("- 弱化‘疗愈效果’等敏感词，用氛围、礼赠、空间体验替代表述。")
-        st.write(f"- 针对 {target_country} 市场，优先采用保守申报与稳定履约路径。")
-        st.write(f"- {sku_type} 当前更适合先做小样板测试，再逐步扩大投放。")
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown("**模块定位说明**")
-        st.write("Puente 的价值不在于重资产全托管，而在于通过数字化预审，把清关和行政风险尽量前置到发货前处理。")
-        st.markdown("</div>", unsafe_allow_html=True)
+st.markdown(f'<div class="footer-line">LINGJING ZHILIAN · {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</div>', unsafe_allow_html=True)
