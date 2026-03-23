@@ -44,8 +44,19 @@ precheck_df = pd.DataFrame([
 st.markdown(
     """
     <style>
-    .stApp {background: linear-gradient(180deg, #f8fafc 0%, #eef4ff 100%); color: #0f172a;}
+    :root {--ink:#0f172a; --muted:#475569; --line:rgba(148,163,184,0.22);} 
+    html, body, [data-testid="stAppViewContainer"], .stApp {
+        background: linear-gradient(180deg, #f8fafc 0%, #eef4ff 100%);
+        color: var(--ink) !important;
+    }
     .block-container {max-width: 1180px; padding-top: 1.2rem; padding-bottom: 2rem;}
+    p, span, label, div, li, h1, h2, h3, h4, h5, h6,
+    [data-testid="stMarkdownContainer"] *,
+    [data-testid="stMetricValue"], [data-testid="stMetricLabel"],
+    [data-baseweb="select"] *, .stSelectbox label, .stTextInput label, .stTextArea label,
+    .stRadio label, .stRadio div, .stTabs [data-baseweb="tab"] * {
+        color: var(--ink);
+    }
     .hero {
         background: rgba(255,255,255,0.86);
         border: 1px solid rgba(148,163,184,0.18);
@@ -72,16 +83,19 @@ st.markdown(
     .status-ok {color:#16a34a; font-weight:700;}
     .status-warn {color:#dc2626; font-weight:700;}
     .stTabs [data-baseweb="tab-list"] {gap: 8px;}
-    .stTabs [data-baseweb="tab"] {
+    .stTabs [data-baseweb="tab"], div[role="radiogroup"] label {
         background:#ffffff; border-radius:12px 12px 0 0; padding:10px 18px; border:1px solid rgba(148,163,184,0.18);
+        color:#0f172a !important;
     }
     .stTabs [aria-selected="true"] {background:#dbeafe !important; color:#1d4ed8 !important;}
     .stButton>button {
         border-radius: 12px; border: 0; background: linear-gradient(90deg, #3b82f6, #60a5fa); color: white; font-weight: 700;
     }
     div[data-baseweb="select"] > div, .stTextInput input, .stTextArea textarea {
-        background: #ffffff !important; border-radius:12px !important; border:1px solid rgba(148,163,184,0.24) !important;
+        background: #ffffff !important; color:#0f172a !important; border-radius:12px !important; border:1px solid rgba(148,163,184,0.24) !important;
     }
+    textarea, input, select {color:#0f172a !important; -webkit-text-fill-color:#0f172a !important;}
+    ::placeholder {color:#94a3b8 !important; opacity:1;}
     </style>
     """,
     unsafe_allow_html=True,
